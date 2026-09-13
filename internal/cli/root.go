@@ -148,6 +148,7 @@ func newRoot() (*cobra.Command, *rt) {
 		newTUICmd(state),
 		newDumpCmd(state),
 		newSyncCmd(state),
+		newQuantifyCmd(state),
 	)
 	return root, state
 }
