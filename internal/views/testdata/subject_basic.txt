@@ -1,0 +1,21 @@
+course/ddco — Digital Design & Computer Organization
+────────────────────────────────────────────────────
+goal 90m/week — last 14 days: 3h 15m
+
+  Aug 31              0m
+  Sep 01              0m
+  Sep 02              0m
+  Sep 03              0m
+  Sep 04              0m
+  Sep 05              0m
+  Sep 06              0m
+  Sep 07              0m
+  Sep 08              0m
+  Sep 09              0m
+  Sep 10   ████       40m
+  Sep 11   ██████████ 1h 30m
+  Sep 12              0m
+  Sep 13   ███████    1h 05m
+
+History
+  milestone  t1: 21/25        Sep 12 09:00
