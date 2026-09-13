@@ -113,6 +113,58 @@ func (s *Store) AddEvent(e model.Event) (int64, error) {
 	return id, nil
 }
 
+// UpsertByDedup inserts e when its dedup key is unseen. When a row with the
+// same key exists, only payload_json is rewritten and only if the new payload
+// has a higher "attempts" count; an existing solve is enriched, never
+// duplicated or re-announced (spec 02, occurrence upsert semantics).
+func (s *Store) UpsertByDedup(e model.Event) (added bool, updated bool, err error) {
+	if e.DedupKey == nil {
+		return false, false, fmt.Errorf("upsert by dedup: dedup_key required")
+	}
+	row := s.db.QueryRow(`SELECT `+eventCols+` FROM events WHERE dedup_key = ?`, *e.DedupKey)
+	existing, err := scanEvent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err := s.AddEvent(e); err != nil {
+			return false, false, err
+		}
+		return true, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("upsert by dedup: %w", err)
+	}
+	if attemptsOf(e.Payload) > attemptsOf(existing.Payload) {
+		if _, err := s.db.Exec(`UPDATE events SET payload_json = ? WHERE dedup_key = ?`, nullPayload(e.Payload), *e.DedupKey); err != nil {
+			return false, false, fmt.Errorf("upsert by dedup: %w", err)
+		}
+		return false, true, nil
+	}
+	return false, false, nil
+}
+
+// EventByDedup returns the event carrying key, or ErrNotFound when absent.
+func (s *Store) EventByDedup(key string) (*model.Event, error) {
+	row := s.db.QueryRow(`SELECT `+eventCols+` FROM events WHERE dedup_key = ?`, key)
+	e, err := scanEvent(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("event by dedup: %w", err)
+	}
+	return &e, nil
+}
+
+// attemptsOf treats an absent or unparseable payload as zero attempts.
+func attemptsOf(payload json.RawMessage) float64 {
+	var p struct {
+		Attempts *float64 `json:"attempts"`
+	}
+	if len(payload) == 0 || json.Unmarshal(payload, &p) != nil || p.Attempts == nil {
+		return 0
+	}
+	return *p.Attempts
+}
+
 func (s *Store) Events(f EventFilter) ([]model.Event, error) {
 	where, args := f.where()
 	rows, err := s.db.Query(`SELECT `+eventCols+` FROM events`+where+` ORDER BY ts, id`, args...)

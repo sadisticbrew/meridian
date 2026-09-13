@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/sadisticbrew/meridian/internal/model"
@@ -292,5 +293,281 @@ func TestRunningSession(t *testing.T) {
 	}
 	if err := s.ClearRunning(); err != nil {
 		t.Fatalf("ClearRunning when absent: %v", err)
+	}
+}
+
+func TestUpsertByDedup(t *testing.T) {
+	const dedup = "neetcode/car-fleet"
+	seedEvent := func(ts, payload, createdAt string) model.Event {
+		return model.Event{
+			Ts:        ts,
+			Source:    "neetcode",
+			Type:      "occurrence",
+			Subject:   ptr("pattern/monotonic-stack"),
+			Payload:   json.RawMessage(payload),
+			DedupKey:  ptr(dedup),
+			CreatedAt: createdAt,
+		}
+	}
+	unchanged := func(t *testing.T, got []model.Event, wantID int64, wantPayload string) {
+		t.Helper()
+		if len(got) != 1 {
+			t.Fatalf("events = %d, want 1", len(got))
+		}
+		if got[0].ID != wantID {
+			t.Errorf("id = %d, want %d", got[0].ID, wantID)
+		}
+		if string(got[0].Payload) != wantPayload {
+			t.Errorf("payload = %s, want unchanged %s", got[0].Payload, wantPayload)
+		}
+	}
+
+	cases := []struct {
+		name       string
+		seed       []model.Event
+		upsert     model.Event
+		wantAdded  bool
+		wantUpdate bool
+		wantErr    string
+		check      func(t *testing.T, got []model.Event, upsert model.Event, seedIDs []int64)
+	}{
+		{
+			name:      "insert new dedup key",
+			upsert:    seedEvent("2026-09-13T09:00:00Z", `{"slug":"car-fleet","attempts":1,"language":"py"}`, "2026-09-13T09:00:01Z"),
+			wantAdded: true,
+			check: func(t *testing.T, got []model.Event, upsert model.Event, _ []int64) {
+				if len(got) != 1 {
+					t.Fatalf("events = %d, want 1", len(got))
+				}
+				want := upsert
+				want.ID = got[0].ID
+				if got[0].ID <= 0 || !reflect.DeepEqual(got[0], want) {
+					t.Errorf("event mismatch:\n got %+v\nwant %+v", got[0], want)
+				}
+			},
+		},
+		{
+			name: "higher attempts updates payload only",
+			seed: []model.Event{seedEvent("2026-09-01T09:00:00Z", `{"slug":"car-fleet","attempts":1,"language":"py"}`, "2026-09-01T09:00:01Z")},
+			upsert: model.Event{
+				Ts:        "2026-09-02T10:00:00Z",
+				Source:    "hook",
+				Type:      "occurrence",
+				Subject:   ptr("pattern/other"),
+				Payload:   json.RawMessage(`{"slug":"car-fleet","attempts":2,"language":"go"}`),
+				DedupKey:  ptr(dedup),
+				CreatedAt: "2026-09-02T10:00:01Z",
+			},
+			wantUpdate: true,
+			check: func(t *testing.T, got []model.Event, _ model.Event, seedIDs []int64) {
+				if len(got) != 1 {
+					t.Fatalf("events = %d, want 1", len(got))
+				}
+				e := got[0]
+				if e.ID != seedIDs[0] {
+					t.Errorf("id = %d, want %d (same row, no duplicate)", e.ID, seedIDs[0])
+				}
+				if e.Ts != "2026-09-01T09:00:00Z" || e.Source != "neetcode" || e.CreatedAt != "2026-09-01T09:00:01Z" {
+					t.Errorf("immutable fields changed: ts=%q source=%q created_at=%q", e.Ts, e.Source, e.CreatedAt)
+				}
+				if e.Subject == nil || *e.Subject != "pattern/monotonic-stack" {
+					t.Errorf("subject = %v, want unchanged", e.Subject)
+				}
+				if string(e.Payload) != `{"slug":"car-fleet","attempts":2,"language":"go"}` {
+					t.Errorf("payload = %s, want enriched", e.Payload)
+				}
+			},
+		},
+		{
+			name: "equal attempts no-op",
+			seed: []model.Event{seedEvent("2026-09-01T09:00:00Z", `{"slug":"car-fleet","attempts":2}`, "2026-09-01T09:00:01Z")},
+			upsert: model.Event{
+				Ts:        "2026-09-02T10:00:00Z",
+				Source:    "neetcode",
+				Type:      "occurrence",
+				Subject:   ptr("pattern/monotonic-stack"),
+				Payload:   json.RawMessage(`{"slug":"car-fleet","attempts":2,"language":"go"}`),
+				DedupKey:  ptr(dedup),
+				CreatedAt: "2026-09-02T10:00:01Z",
+			},
+			check: func(t *testing.T, got []model.Event, _ model.Event, seedIDs []int64) {
+				unchanged(t, got, seedIDs[0], `{"slug":"car-fleet","attempts":2}`)
+			},
+		},
+		{
+			name: "lower attempts no-op",
+			seed: []model.Event{seedEvent("2026-09-01T09:00:00Z", `{"slug":"car-fleet","attempts":3}`, "2026-09-01T09:00:01Z")},
+			upsert: model.Event{
+				Ts:        "2026-09-02T10:00:00Z",
+				Source:    "neetcode",
+				Type:      "occurrence",
+				Subject:   ptr("pattern/monotonic-stack"),
+				Payload:   json.RawMessage(`{"slug":"car-fleet","attempts":2,"language":"go"}`),
+				DedupKey:  ptr(dedup),
+				CreatedAt: "2026-09-02T10:00:01Z",
+			},
+			check: func(t *testing.T, got []model.Event, _ model.Event, seedIDs []int64) {
+				unchanged(t, got, seedIDs[0], `{"slug":"car-fleet","attempts":3}`)
+			},
+		},
+		{
+			name: "existing payload without attempts treated as zero",
+			seed: []model.Event{seedEvent("2026-09-01T09:00:00Z", `{"slug":"car-fleet"}`, "2026-09-01T09:00:01Z")},
+			upsert: model.Event{
+				Ts:        "2026-09-02T10:00:00Z",
+				Source:    "neetcode",
+				Type:      "occurrence",
+				Subject:   ptr("pattern/monotonic-stack"),
+				Payload:   json.RawMessage(`{"slug":"car-fleet","attempts":1}`),
+				DedupKey:  ptr(dedup),
+				CreatedAt: "2026-09-02T10:00:01Z",
+			},
+			wantUpdate: true,
+			check: func(t *testing.T, got []model.Event, _ model.Event, seedIDs []int64) {
+				if len(got) != 1 {
+					t.Fatalf("events = %d, want 1", len(got))
+				}
+				if got[0].ID != seedIDs[0] || string(got[0].Payload) != `{"slug":"car-fleet","attempts":1}` {
+					t.Errorf("id/payload = %d/%s, want %d/attempts 1", got[0].ID, got[0].Payload, seedIDs[0])
+				}
+			},
+		},
+		{
+			name: "unparseable existing payload treated as zero",
+			seed: []model.Event{seedEvent("2026-09-01T09:00:00Z", `not-json`, "2026-09-01T09:00:01Z")},
+			upsert: model.Event{
+				Ts:        "2026-09-02T10:00:00Z",
+				Source:    "neetcode",
+				Type:      "occurrence",
+				Subject:   ptr("pattern/monotonic-stack"),
+				Payload:   json.RawMessage(`{"slug":"car-fleet","attempts":1}`),
+				DedupKey:  ptr(dedup),
+				CreatedAt: "2026-09-02T10:00:01Z",
+			},
+			wantUpdate: true,
+			check: func(t *testing.T, got []model.Event, _ model.Event, seedIDs []int64) {
+				if len(got) != 1 {
+					t.Fatalf("events = %d, want 1", len(got))
+				}
+				if got[0].ID != seedIDs[0] || string(got[0].Payload) != `{"slug":"car-fleet","attempts":1}` {
+					t.Errorf("id/payload = %d/%s, want %d/attempts 1", got[0].ID, got[0].Payload, seedIDs[0])
+				}
+			},
+		},
+		{
+			name: "nil dedup key rejected",
+			upsert: model.Event{
+				Ts:        "2026-09-13T09:00:00Z",
+				Source:    "neetcode",
+				Type:      "occurrence",
+				Subject:   ptr("pattern/monotonic-stack"),
+				CreatedAt: "2026-09-13T09:00:01Z",
+			},
+			wantErr: "dedup_key required",
+			check: func(t *testing.T, got []model.Event, _ model.Event, _ []int64) {
+				if len(got) != 0 {
+					t.Errorf("events = %d, want 0", len(got))
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTest(t)
+			seedIDs := make([]int64, len(tc.seed))
+			for i, e := range tc.seed {
+				seedIDs[i] = addEvent(t, s, e)
+			}
+			added, updated, err := s.UpsertByDedup(tc.upsert)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("UpsertByDedup: %v", err)
+			}
+			if added != tc.wantAdded || updated != tc.wantUpdate {
+				t.Errorf("added=%v updated=%v, want added=%v updated=%v", added, updated, tc.wantAdded, tc.wantUpdate)
+			}
+			got, err := s.Events(EventFilter{})
+			if err != nil {
+				t.Fatalf("Events: %v", err)
+			}
+			if tc.check != nil {
+				tc.check(t, got, tc.upsert, seedIDs)
+			}
+		})
+	}
+}
+
+func TestEventByDedup(t *testing.T) {
+	s := openTest(t)
+	seed := model.Event{
+		Ts:        "2026-09-01T10:00:00Z",
+		Source:    "neetcode",
+		Type:      "occurrence",
+		Subject:   ptr("pattern/monotonic-stack"),
+		Payload:   json.RawMessage(`{"slug":"car-fleet","attempts":1,"language":"py"}`),
+		DedupKey:  ptr("neetcode/car-fleet"),
+		CreatedAt: "2026-09-01T10:00:01Z",
+	}
+	want := seed
+	want.ID = addEvent(t, s, seed)
+
+	cases := []struct {
+		name    string
+		key     string
+		want    *model.Event
+		wantErr error
+	}{
+		{"found", "neetcode/car-fleet", &want, nil},
+		{"not found", "neetcode/nope", nil, ErrNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.EventByDedup(tc.key)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				if got != nil {
+					t.Errorf("event = %+v, want nil", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("EventByDedup: %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("event mismatch:\n got %+v\nwant %+v", *got, *tc.want)
+			}
+		})
+	}
+}
+
+func TestAddEventNullDedupKeys(t *testing.T) {
+	s := openTest(t)
+	cases := []model.Event{
+		{Ts: "2026-09-13T08:00:00Z", Source: "manual", Type: "note", RawText: ptr("first"), CreatedAt: "2026-09-13T08:00:01Z"},
+		{Ts: "2026-09-13T09:00:00Z", Source: "manual", Type: "note", RawText: ptr("second"), CreatedAt: "2026-09-13T09:00:01Z"},
+	}
+	eventIDs := make([]int64, len(cases))
+	for i, e := range cases {
+		eventIDs[i] = addEvent(t, s, e)
+	}
+	if eventIDs[0] == eventIDs[1] {
+		t.Fatalf("ids = %v, want distinct", eventIDs)
+	}
+	got, err := s.Events(EventFilter{})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("events = %d, want 2 (multiple NULL dedup keys allowed)", len(got))
+	}
+	for i, e := range got {
+		if e.DedupKey != nil {
+			t.Errorf("event %d dedup_key = %q, want NULL", i, *e.DedupKey)
+		}
 	}
 }
