@@ -112,6 +112,72 @@ func seedBasic(t *testing.T) *store.Store {
 
 func jsonRaw(s string) json.RawMessage { return json.RawMessage(s) }
 
+func seedPassiveSolve(t *testing.T, st *store.Store, subject, slug string, attempts int, ts string) {
+	t.Helper()
+	payload := fmt.Sprintf(`{"slug":%q,"attempts":%d,"language":"py","topic_folder":"Data Structures & Algorithms"}`,
+		slug, attempts)
+	dedup := "neetcode/" + slug
+	seedEvent(t, st, model.Event{Ts: ts, Source: "neetcode", Type: "occurrence",
+		Subject: &subject, Payload: jsonRaw(payload), DedupKey: &dedup})
+}
+
+func seedDSA(t *testing.T) *store.Store {
+	t.Helper()
+	st := openViewDB(t)
+	seedThing(t, st, model.Thing{ID: "pattern/monotonic-stack", Kind: "pattern", DisplayName: "Monotonic Stack",
+		Active: true, DecisionRule: rulePattern})
+	seedThing(t, st, model.Thing{ID: "pattern/unclassified", Kind: "pattern", DisplayName: "Unclassified",
+		Active: true})
+	seedThing(t, st, model.Thing{ID: "pattern/stack", Kind: "pattern", DisplayName: "Stack",
+		Active: true, DecisionRule: rulePattern})
+
+	mono := "pattern/monotonic-stack"
+	stack := "pattern/stack"
+	seedPassiveSolve(t, st, mono, "car-fleet", 1, "2026-09-11T08:00:00Z")
+	seedPassiveSolve(t, st, mono, "daily-temperatures", 1, "2026-09-12T08:00:00Z")
+	seedPassiveSolve(t, st, mono, "sliding-window-maximum", 3, "2026-09-13T08:00:00Z")
+	seedEvent(t, st, model.Event{Ts: "2026-09-13T09:00:00Z", Source: "manual", Type: "occurrence",
+		Subject: &stack, Payload: jsonRaw(`{"problem":"largest-rectangle","outcome":"reviewed"}`)})
+	return st
+}
+
+func seedDSAUnclassified(t *testing.T) *store.Store {
+	t.Helper()
+	st := seedDSA(t)
+	seedPassiveSolve(t, st, "pattern/unclassified", "contains-duplicate", 2, "2026-09-10T08:00:00Z")
+	seedPassiveSolve(t, st, "pattern/unclassified", "valid-anagram", 3, "2026-09-11T09:00:00Z")
+	return st
+}
+
+func seedGermanDelta(t *testing.T) *store.Store {
+	t.Helper()
+	st := openViewDB(t)
+	seedThing(t, st, model.Thing{ID: "language/german", Kind: "language", DisplayName: "German (Nicos Weg)",
+		Active: true})
+	german := "language/german"
+	before := 42.0
+	seedEvent(t, st, model.Event{Ts: "2026-09-05T08:00:00Z", Source: "manual", Type: "occurrence",
+		Subject: &german, ValueNum: &before})
+	seedEvent(t, st, model.Event{Ts: "2026-09-12T08:00:00Z", Source: "manual", Type: "session",
+		Subject: &german, Payload: jsonRaw(sessionPayload("2026-09-12T08:00:00Z", "2026-09-12T08:40:00Z", 40))})
+	latest := 46.0
+	seedEvent(t, st, model.Event{Ts: "2026-09-13T08:00:00Z", Source: "manual", Type: "occurrence",
+		Subject: &german, ValueNum: &latest})
+	return st
+}
+
+func seedPatternSubject(t *testing.T) *store.Store {
+	t.Helper()
+	st := openViewDB(t)
+	seedThing(t, st, model.Thing{ID: "pattern/monotonic-stack", Kind: "pattern", DisplayName: "Monotonic Stack",
+		Active: true, DecisionRule: rulePattern})
+	mono := "pattern/monotonic-stack"
+	seedPassiveSolve(t, st, mono, "car-fleet", 2, "2026-09-12T08:00:00Z")
+	seedEvent(t, st, model.Event{Ts: "2026-09-13T09:00:00Z", Source: "manual", Type: "occurrence",
+		Subject: &mono, Payload: jsonRaw(`{"problem":"largest-rectangle","outcome":"reviewed"}`)})
+	return st
+}
+
 func goldenCompare(t *testing.T, name, got string) {
 	t.Helper()
 	path := filepath.Join("testdata", name)
@@ -165,14 +231,18 @@ func TestWeekGolden(t *testing.T) {
 	cases := []struct {
 		name   string
 		last   bool
+		seed   func(*testing.T) *store.Store
 		golden string
 	}{
-		{"basic", false, "week_basic.txt"},
-		{"last", true, "week_last.txt"},
+		{"basic", false, seedBasic, "week_basic.txt"},
+		{"last", true, seedBasic, "week_last.txt"},
+		{"firsttry", false, seedDSA, "week_firsttry.txt"},
+		{"unclassified", false, seedDSAUnclassified, "week_unclassified.txt"},
+		{"german-delta", false, seedGermanDelta, "week_german_delta.txt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			st := seedBasic(t)
+			st := tc.seed(t)
 			var buf bytes.Buffer
 			if err := Week(&buf, testNow, st, tc.last); err != nil {
 				t.Fatalf("Week: %v", err)
@@ -197,6 +267,7 @@ func TestSubjectGolden(t *testing.T) {
 	}{
 		{"basic", seedBasic, "course/ddco", "subject_basic.txt"},
 		{"empty", seedNoGoal, "pattern/stack", "subject_empty.txt"},
+		{"pattern", seedPatternSubject, "pattern/monotonic-stack", "subject_pattern.txt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

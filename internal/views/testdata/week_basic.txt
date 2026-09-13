@@ -2,8 +2,8 @@ Week — Sep 07 → Sep 13
 ──────────────────────
 Done
   Courses         3h 15m
-  German (Nicos Weg) 40m, lessons 42 → 46
-  DSA             2 solved
+  German (Nicos Weg) 40m, lesson 46
+  DSA             2 solved, 0/2 first-try
   Scores          Digital Design & Computer Organization t1: 21/25
 
 Gaps

@@ -1,0 +1,23 @@
+pattern/monotonic-stack — Monotonic Stack
+─────────────────────────────────────────
+no goal — last 14 days
+
+  Aug 31              0m
+  Sep 01              0m
+  Sep 02              0m
+  Sep 03              0m
+  Sep 04              0m
+  Sep 05              0m
+  Sep 06              0m
+  Sep 07              0m
+  Sep 08              0m
+  Sep 09              0m
+  Sep 10              0m
+  Sep 11              0m
+  Sep 12              0m
+  Sep 13              0m
+
+Problems (last 14 days)
+  slug                     attempts outcome   date
+  car-fleet                2        solved    Sep 12
+  largest-rectangle        -        reviewed  Sep 13
