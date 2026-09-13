@@ -73,6 +73,24 @@ invisible in main views by design). Implementer discovers exact journal entries 
 CachyOS via `journalctl --grep suspend --since ...`; the acceptance test uses a
 fixture journal file, not a live one.
 
+**Verified journal markers (phase 4, CachyOS, systemd):** the journal provides no
+user-activity record, so the implemented window is **suspend → resume** (a
+documented deviation from the prose above). The reliable, repeated markers are
+both from the `systemd-sleep` identifier:
+
+- suspend: `Performing sleep operation 'suspend'...`
+- resume: `System returned from sleep operation 'suspend'.`
+
+Production reads them via `journalctl -o short-iso --grep "(Performing|returned
+from) sleep operation"` (`--grep` matches only the MESSAGE field, so prefixing
+the identifier in the pattern never matches; the parser requires the exact
+marker text). short-iso timestamps (`2026-09-13T21:14:31+0530`) parse as
+`2006-01-02T15:04:05-0700` and are stored UTC. Events dedup on
+`sleep-proxy/<suspend-utc>`; `value_num` = hours (resume − suspend), `ts` =
+resume time. Markers were consistent across multiple boots on the owner's
+machine — the proxy is reliable enough to keep. Full findings:
+`internal/collectors/sleepproxy_NOTES.md`.
+
 ## Normalizer (`quantify`, phase 4)
 
 Turns `note` events into structured annotations. Four hard rules (spec 00):
@@ -154,6 +172,16 @@ escape sequences from stdout; extract JSON as the substring from the first `{` t
 the last `}`; on timeout or unparseable output the provider returns an error (the
 note simply stays pending — never fatal). Verify the exact `opencode run` flags
 against the installed version during phase 4 and record them in this file.
+
+**Verified live (phase 4, opencode 1.18.30 on CachyOS):** the default
+`command = "opencode run"` works verbatim — `opencode run '<prompt>'` takes the
+prompt as its final positional argument (no shell, no `{PROMPT}` substitution
+token), optional `-m provider/model` for the model. The model's reply goes to
+stdout wrapped in ANSI escape sequences (CSI resets around lines), so ANSI
+stripping is mandatory. Note: the process exits 0 even when the backend errors
+and output is garbage — exit status is not a reliability signal; the JSON
+extraction + closed-vocabulary validation downstream is the real gate. Provider
+errors leave notes pending as specified.
 
 **`http` (adapter).** OpenAI-compatible chat completions. Config:
 

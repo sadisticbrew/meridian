@@ -571,3 +571,18 @@ func TestAddEventNullDedupKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestIsDedupConflict(t *testing.T) {
+	s := openTest(t)
+	key := ptr("dup/key")
+	e := model.Event{Ts: "2026-09-13T09:00:00Z", Source: "manual", Type: "occurrence", DedupKey: key, CreatedAt: "2026-09-13T09:00:01Z"}
+	addEvent(t, s, e)
+	if _, err := s.AddEvent(e); err == nil {
+		t.Fatal("second AddEvent succeeded, want UNIQUE conflict")
+	} else if !IsDedupConflict(err) {
+		t.Errorf("IsDedupConflict(%v) = false, want true", err)
+	}
+	if IsDedupConflict(errors.New("boom")) {
+		t.Error("IsDedupConflict(boom) = true, want false")
+	}
+}

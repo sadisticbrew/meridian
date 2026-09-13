@@ -9,7 +9,7 @@ Replace `{{DEEPSEEK_ID}}` with the exact model id from `opencode models` output.
 ---
 
 ```text
-Implement phase 0 of the meridian spec.
+Implement phase 4 of the meridian spec.
 
 SPEC: read spec/00-overview.md, spec/01-architecture.md, spec/02-data-model.md,
 spec/03-cli-surface.md, spec/04-plugins.md, then spec/phase-{{N}}.md — the phase
@@ -58,9 +58,9 @@ COMPLETION GATE (in order, no skipping):
    don't hide.)
 
 SPECIAL NOTES FOR THIS PHASE:
-**Phase 0:** `git init` first; initial commit of `spec/` + `AGENTS.md` + this
-file on main. No `project/*` seed rows — the seed catalog in spec/phase-0.md is
-verbatim.
+**Phase 4:** Record the verified `opencode run` invocation and sleep-proxy
+journal findings back into spec/04-plugins.md — the two sanctioned spec-amendment
+points. API keys only from env; the redaction test is mandatory.
 ```
 
 ---

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/sadisticbrew/meridian/internal/model"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // EventFilter selects events. From/To are UTC RFC 3339 strings and form the
@@ -113,6 +115,16 @@ func (s *Store) AddEvent(e model.Event) (int64, error) {
 	return id, nil
 }
 
+// IsDedupConflict reports whether err is SQLite's UNIQUE violation on the
+// events.dedup_key index; callers treat that as a duplicate, not a failure.
+func IsDedupConflict(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) || se.Code() != sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+		return false
+	}
+	return strings.Contains(se.Error(), "events.dedup_key")
+}
+
 // UpsertByDedup inserts e when its dedup key is unseen. When a row with the
 // same key exists, only payload_json is rewritten and only if the new payload
 // has a higher "attempts" count; an existing solve is enriched, never
@@ -139,6 +151,65 @@ func (s *Store) UpsertByDedup(e model.Event) (added bool, updated bool, err erro
 		return false, true, nil
 	}
 	return false, false, nil
+}
+
+// Notes returns note events ordered by id; onlyUnquantified restricts to
+// quantified = 0.
+func (s *Store) Notes(onlyUnquantified bool) ([]model.Event, error) {
+	q := `SELECT ` + eventCols + ` FROM events WHERE type = 'note'`
+	if onlyUnquantified {
+		q += ` AND quantified = 0`
+	}
+	q += ` ORDER BY id`
+	rows, err := s.db.Query(q)
+	if err != nil {
+		return nil, fmt.Errorf("list notes: %w", err)
+	}
+	defer rows.Close()
+	var out []model.Event
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list notes: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// MarkQuantified stores the normalizer payload and flips the quantified flag.
+func (s *Store) MarkQuantified(id int64, payload string) error {
+	res, err := s.db.Exec(`UPDATE events SET payload_json = ?, quantified = 1 WHERE id = ?`, payload, id)
+	if err != nil {
+		return fmt.Errorf("mark quantified %d: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteEventsBySource removes every event written by source and reports how
+// many rows went away.
+func (s *Store) DeleteEventsBySource(source string) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM events WHERE source = ?`, source)
+	if err != nil {
+		return 0, fmt.Errorf("delete events by source %s: %w", source, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("delete events by source %s: %w", source, err)
+	}
+	return n, nil
+}
+
+// ResetNotesQuantified clears normalizer output on every note so --redo can
+// re-run over all history; raw_text is never touched.
+func (s *Store) ResetNotesQuantified() error {
+	if _, err := s.db.Exec(`UPDATE events SET quantified = 0, payload_json = NULL WHERE type = 'note'`); err != nil {
+		return fmt.Errorf("reset notes quantified: %w", err)
+	}
+	return nil
 }
 
 // EventByDedup returns the event carrying key, or ErrNotFound when absent.

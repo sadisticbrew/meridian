@@ -26,5 +26,8 @@ func (e *UnavailableError) Error() string { return "unavailable (offline?): " + 
 func (e *UnavailableError) Unwrap() error { return e.Err }
 
 func Registry() map[string]Collector {
-	return map[string]Collector{"neetcode": NewNeetCode()}
+	return map[string]Collector{
+		"neetcode":    NewNeetCode(),
+		"sleep-proxy": NewSleepProxy(),
+	}
 }
