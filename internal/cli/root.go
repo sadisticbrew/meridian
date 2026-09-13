@@ -143,6 +143,9 @@ func newRoot() (*cobra.Command, *rt) {
 		newTodayCmd(state),
 		newWeekCmd(state),
 		newSubjectCmd(state),
+		newGraphCmd(state),
+		newExportCmd(state),
+		newTUICmd(state),
 		newDumpCmd(state),
 		newSyncCmd(state),
 	)

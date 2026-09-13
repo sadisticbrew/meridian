@@ -1,0 +1,5 @@
+DSA — last 14 days
+──────────────────
+  pattern                  solved first-try reviewed  struggled
+  Monotonic Stack               3         2        0          0
+  Stack                         0         0        1          0
