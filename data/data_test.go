@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sadisticbrew/meridian/internal/model"
 	"github.com/sadisticbrew/meridian/internal/seed"
 	"github.com/sadisticbrew/meridian/internal/store"
 )
@@ -106,7 +107,16 @@ func openSeedStore(t *testing.T) *store.Store {
 	}
 	t.Cleanup(func() { st.Close() })
 	created := time.Now().UTC().Format(time.RFC3339)
-	for _, th := range seed.Rows(created) {
+	rows := seed.Rows(created)
+	// Owner-added patterns kept in sync with the map; deliberately not in the phase-0 seed.
+	const patternRule = "reviews ≥ solves this week → re-drill that pattern's trigger cards"
+	rows = append(rows,
+		model.Thing{ID: "pattern/graphs", Kind: "pattern", DisplayName: "Graphs", Active: true, DecisionRule: patternRule, CreatedAt: created},
+		model.Thing{ID: "pattern/advanced-graphs", Kind: "pattern", DisplayName: "Advanced Graphs", Active: true, DecisionRule: patternRule, CreatedAt: created},
+		model.Thing{ID: "pattern/math-geometry", Kind: "pattern", DisplayName: "Math & Geometry", Active: true, DecisionRule: patternRule, CreatedAt: created},
+		model.Thing{ID: "pattern/bit-manipulation", Kind: "pattern", DisplayName: "Bit Manipulation", Active: true, DecisionRule: patternRule, CreatedAt: created},
+	)
+	for _, th := range rows {
 		if err := st.UpsertThing(th); err != nil {
 			t.Fatalf("UpsertThing %s: %v", th.ID, err)
 		}
