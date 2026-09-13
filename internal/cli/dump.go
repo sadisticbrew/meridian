@@ -76,6 +76,9 @@ func emitEvents(out io.Writer, st *store.Store, f store.EventFilter) error {
 		return err
 	}
 	enc := json.NewEncoder(out)
+	// Spec 02's sample line shows a raw "&" in display names — no HTML
+	// escaping in dump output.
+	enc.SetEscapeHTML(false)
 	for _, e := range evs {
 		if err := enc.Encode(toDumpEvent(e, names)); err != nil {
 			return err
