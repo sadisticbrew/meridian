@@ -138,6 +138,8 @@ func newRoot() (*cobra.Command, *rt) {
 		newStopCmd(state),
 		newStatusCmd(state),
 		newAbortCmd(state),
+		newLogCmd(state),
+		newNoteCmd(state),
 	)
 	return root, state
 }
