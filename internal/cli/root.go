@@ -54,6 +54,17 @@ func usagef(format string, a ...any) error {
 	return usageError{fmt.Errorf(format, a...)}
 }
 
+// exitError carries an explicit exit code; an empty msg is printed as
+// nothing at all (e.g. exit 3 for "no running session", a normal state).
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e *exitError) Error() string { return e.msg }
+
+func exitSilent(code int) error { return &exitError{code: code} }
+
 // run wraps a subcommand body: runtime errors suppress the usage dump,
 // usage errors keep it (spec 01 exit-code semantics).
 func run(cmd *cobra.Command, fn func() error) error {
@@ -69,6 +80,10 @@ func run(cmd *cobra.Command, fn func() error) error {
 
 // classify maps an execution error to the spec 01 exit code.
 func classify(err error, ran bool) int {
+	var ee *exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
 	var ae *AmbiguousError
 	if errors.As(err, &ae) {
 		return 4
@@ -95,6 +110,10 @@ func executeIO(out, errW io.Writer, args []string) int {
 		return 0
 	}
 	code := classify(err, state.ran)
+	var ee *exitError
+	if errors.As(err, &ee) && ee.msg == "" {
+		return code
+	}
 	fmt.Fprintf(errW, "Error: %v\n", err)
 	return code
 }
@@ -112,7 +131,20 @@ func newRoot() (*cobra.Command, *rt) {
 	root.PersistentFlags().StringVar(&state.dbPath, "db", "", "database path")
 	root.PersistentFlags().StringVar(&state.configPath, "config", "", "config file path")
 	root.PersistentFlags().BoolVar(&state.jsonOut, "json", false, "machine-readable output")
-	root.AddCommand(newTrackCmd(state), newInitCmd(state))
+	root.AddCommand(
+		newTrackCmd(state),
+		newInitCmd(state),
+		newStartCmd(state),
+		newStopCmd(state),
+		newStatusCmd(state),
+		newAbortCmd(state),
+		newLogCmd(state),
+		newNoteCmd(state),
+		newTodayCmd(state),
+		newWeekCmd(state),
+		newSubjectCmd(state),
+		newDumpCmd(state),
+	)
 	return root, state
 }
 
