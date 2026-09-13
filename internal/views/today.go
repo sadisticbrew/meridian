@@ -68,32 +68,29 @@ func Today(w io.Writer, now time.Time, st *store.Store) error {
 				return derr
 			}
 			bank = bank && (minutes > 0 || detail != "study")
-		case "pattern":
-			var solved []string
-			for _, e := range evs {
-				if e.Type != "occurrence" {
-					continue
-				}
-				p, err := decode[occurrencePayload](e)
-				if err != nil {
-					return err
-				}
-				if p.Outcome == "solved" {
-					solved = append(solved, p.Problem)
-				}
-			}
-			// Pattern rows carry no minutes column (spec 03: "DSA  2 solved (...)").
-			if len(solved) > 0 {
-				banked = append(banked, fmt.Sprintf("  %-15s %d solved (%s)",
-					t.DisplayName, len(solved), strings.Join(solved, ", ")))
-			}
-			continue
 		}
 		if !bank {
 			continue
 		}
 		// Today's banked minutes render as plain "Nm" per spec 03 ("65m").
 		banked = append(banked, fmt.Sprintf("  %-15s %dm   %s", t.DisplayName, minutes, detail))
+	}
+	activePatterns := map[string]bool{}
+	for _, t := range active {
+		if t.Kind == "pattern" {
+			activePatterns[t.ID] = true
+		}
+	}
+	var dsaEvents []model.Event
+	for _, e := range events {
+		if e.Subject != nil && activePatterns[*e.Subject] {
+			dsaEvents = append(dsaEvents, e)
+		}
+	}
+	// Pattern rows carry no minutes column (spec 03: "DSA  2 solved (...)").
+	if n := solvedCount(dsaEvents); n > 0 {
+		banked = append(banked, fmt.Sprintf("  %-15s %d solved, %d/%d first-try (%s)",
+			"DSA", n, firstTryCount(dsaEvents), n, strings.Join(solvedSlugs(dsaEvents), ", ")))
 	}
 
 	if len(banked) > 0 {

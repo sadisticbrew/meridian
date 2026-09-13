@@ -2,6 +2,7 @@ package views
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -92,16 +93,35 @@ func Week(w io.Writer, now time.Time, st *store.Store, last bool) error {
 		done = append(done, line)
 	}
 	for _, t := range byKind["language"] {
-		if line := languageLine(t, perSubject[t.ID]); line != "" {
+		var prev *int
+		prevEv, err := st.LatestOccurrenceBefore(t.ID, from)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if prevEv != nil && prevEv.ValueNum != nil {
+			v := int(*prevEv.ValueNum)
+			prev = &v
+		}
+		if line := languageLine(t, perSubject[t.ID], prev); line != "" {
 			done = append(done, line)
 		}
 	}
-	solved := 0
+	solved, firstTry, unclassified := 0, 0, 0
 	for _, t := range byKind["pattern"] {
-		solved += countOutcome(perSubject[t.ID], "solved")
+		evs := perSubject[t.ID]
+		s := solvedCount(evs)
+		solved += s
+		firstTry += firstTryCount(evs)
+		if t.ID == "pattern/unclassified" {
+			unclassified = s
+		}
 	}
 	if solved > 0 {
-		done = append(done, fmt.Sprintf("  %-15s %d solved", "DSA", solved))
+		line := fmt.Sprintf("  %-15s %d solved, %d/%d first-try", "DSA", solved, firstTry, solved)
+		if unclassified > 0 {
+			line += fmt.Sprintf(", %d unclassified — add them to data/neetcode150-patterns.json", unclassified)
+		}
+		done = append(done, line)
 	}
 	if parts := scoreParts(events, names); len(parts) > 0 {
 		done = append(done, fmt.Sprintf("  %-15s %s", "Scores", strings.Join(parts, ", ")))
@@ -175,8 +195,9 @@ func decodeGoal(raw string) (goalValues, error) {
 	return g, nil
 }
 
-// languageLine renders one language thing: minutes plus lesson progress.
-func languageLine(t model.Thing, evs []model.Event) string {
+// languageLine renders one language thing: minutes plus lesson progress,
+// latest-in-window against the latest lesson before the window.
+func languageLine(t model.Thing, evs []model.Event, prev *int) string {
 	minutes := sessionMinutes(evs)
 	values := lessonValues(eventsOfType(evs, "occurrence"))
 	if minutes == 0 && len(values) == 0 {
@@ -187,11 +208,11 @@ func languageLine(t model.Thing, evs []model.Event) string {
 		parts = append(parts, render.Minutes(minutes))
 	}
 	if len(values) > 0 {
-		lo, hi := minMax(values)
-		if lo == hi {
-			parts = append(parts, fmt.Sprintf("lesson %d", lo))
+		latest := values[len(values)-1]
+		if prev != nil && *prev != latest {
+			parts = append(parts, fmt.Sprintf("lessons %d → %d", *prev, latest))
 		} else {
-			parts = append(parts, fmt.Sprintf("lessons %d → %d", lo, hi))
+			parts = append(parts, fmt.Sprintf("lesson %d", latest))
 		}
 	}
 	return fmt.Sprintf("  %-15s %s", t.DisplayName, strings.Join(parts, ", "))
@@ -275,7 +296,7 @@ func focusLine(patterns []model.Thing, perSubject map[string][]model.Event) stri
 			thing:    t,
 			reviews:  countOutcome(evs, "reviewed"),
 			struggle: countOutcome(evs, "struggled"),
-			solves:   countOutcome(evs, "solved"),
+			solves:   solvedCount(evs),
 		}
 		c.score = c.reviews + c.struggle - c.solves
 		if c.score <= 0 {

@@ -50,6 +50,13 @@ type occurrencePayload struct {
 	Outcome string `json:"outcome"`
 }
 
+type passivePayload struct {
+	Slug        string   `json:"slug"`
+	Attempts    *float64 `json:"attempts"`
+	Language    string   `json:"language"`
+	TopicFolder string   `json:"topic_folder"`
+}
+
 type milestonePayload struct {
 	Exam string   `json:"exam"`
 	Max  *float64 `json:"max"`
@@ -77,17 +84,75 @@ func lessonValues(evs []model.Event) []int {
 	return out
 }
 
-func minMax(values []int) (int, int) {
-	lo, hi := values[0], values[0]
-	for _, v := range values[1:] {
-		if v < lo {
-			lo = v
-		}
-		if v > hi {
-			hi = v
+// passiveSolves returns neetcode occurrences — solves by definition.
+func passiveSolves(evs []model.Event) []model.Event {
+	var out []model.Event
+	for _, e := range evs {
+		if e.Type == "occurrence" && e.Source == "neetcode" {
+			out = append(out, e)
 		}
 	}
-	return lo, hi
+	return out
+}
+
+// solvedCount counts passive solves plus manual occurrences marked solved.
+func solvedCount(evs []model.Event) int {
+	n := len(passiveSolves(evs))
+	for _, e := range evs {
+		if e.Type != "occurrence" || e.Source == "neetcode" {
+			continue
+		}
+		p, err := decode[occurrencePayload](e)
+		if err != nil {
+			continue
+		}
+		if p.Outcome == "solved" {
+			n++
+		}
+	}
+	return n
+}
+
+// firstTryCount counts passive solves finished on the first submission.
+func firstTryCount(evs []model.Event) int {
+	n := 0
+	for _, e := range passiveSolves(evs) {
+		p, err := decode[passivePayload](e)
+		if err != nil {
+			continue
+		}
+		if p.Attempts != nil && *p.Attempts == 1 {
+			n++
+		}
+	}
+	return n
+}
+
+// solvedSlugs lists solved problems in ts order: passive slugs and manual
+// problems alike.
+func solvedSlugs(evs []model.Event) []string {
+	var out []string
+	for _, e := range evs {
+		if e.Type != "occurrence" {
+			continue
+		}
+		if e.Source == "neetcode" {
+			p, err := decode[passivePayload](e)
+			if err != nil {
+				continue
+			}
+			out = append(out, p.Slug)
+			continue
+		}
+		p, err := decode[occurrencePayload](e)
+		if err != nil {
+			continue
+		}
+		if p.Outcome == "solved" {
+			out = append(out, p.Problem)
+		}
+	}
+	return out
 }
 
 // gapLine builds "⚠ <display>: <actual> / <target> — <rule>" with the rule

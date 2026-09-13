@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/sadisticbrew/meridian/internal/model"
 	"github.com/sadisticbrew/meridian/internal/render"
 	"github.com/sadisticbrew/meridian/internal/store"
 )
@@ -78,6 +79,9 @@ func Subject(w io.Writer, now time.Time, st *store.Store, id string, days int) e
 	if err != nil {
 		return err
 	}
+	if t.Kind == "pattern" {
+		return problemsTable(w, now, evs, days)
+	}
 	var history []string
 	for _, e := range evs {
 		var detail string
@@ -120,6 +124,52 @@ func Subject(w io.Writer, now time.Time, st *store.Store, id string, days int) e
 		for _, line := range history {
 			fmt.Fprintln(w, line)
 		}
+	}
+	return nil
+}
+
+// problemsTable renders the per-problem pattern view: passive neetcode solves
+// and manual reviews/struggles in ts order.
+func problemsTable(w io.Writer, now time.Time, evs []model.Event, days int) error {
+	var rows []string
+	for _, e := range evs {
+		if e.Type != "occurrence" {
+			continue
+		}
+		var slug, attempts, outcome string
+		if e.Source == "neetcode" {
+			p, err := decode[passivePayload](e)
+			if err != nil {
+				return err
+			}
+			slug, outcome = p.Slug, "solved"
+			if p.Attempts == nil {
+				attempts = "-"
+			} else {
+				attempts = fmt.Sprintf("%d", int(*p.Attempts))
+			}
+		} else {
+			p, err := decode[occurrencePayload](e)
+			if err != nil {
+				return err
+			}
+			slug, attempts, outcome = p.Problem, "-", p.Outcome
+		}
+		ts, err := time.Parse(time.RFC3339, e.Ts)
+		if err != nil {
+			return fmt.Errorf("event %d ts %q: %w", e.ID, e.Ts, err)
+		}
+		rows = append(rows, fmt.Sprintf("  %-24s %-8s %-9s %s",
+			slug, attempts, outcome, ts.In(now.Location()).Format("Jan 2")))
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Problems (last %d days)\n", days)
+	fmt.Fprintf(w, "  %-24s %-8s %-9s %s\n", "slug", "attempts", "outcome", "date")
+	for _, row := range rows {
+		fmt.Fprintln(w, row)
 	}
 	return nil
 }
