@@ -69,6 +69,10 @@ func run(cmd *cobra.Command, fn func() error) error {
 
 // classify maps an execution error to the spec 01 exit code.
 func classify(err error, ran bool) int {
+	var ae *AmbiguousError
+	if errors.As(err, &ae) {
+		return 4
+	}
 	var ue usageError
 	if errors.As(err, &ue) {
 		return 2
