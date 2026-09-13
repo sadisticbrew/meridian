@@ -73,6 +73,24 @@ invisible in main views by design). Implementer discovers exact journal entries 
 CachyOS via `journalctl --grep suspend --since ...`; the acceptance test uses a
 fixture journal file, not a live one.
 
+**Verified journal markers (phase 4, CachyOS, systemd):** the journal provides no
+user-activity record, so the implemented window is **suspend → resume** (a
+documented deviation from the prose above). The reliable, repeated markers are
+both from the `systemd-sleep` identifier:
+
+- suspend: `Performing sleep operation 'suspend'...`
+- resume: `System returned from sleep operation 'suspend'.`
+
+Production reads them via `journalctl -o short-iso --grep "(Performing|returned
+from) sleep operation"` (`--grep` matches only the MESSAGE field, so prefixing
+the identifier in the pattern never matches; the parser requires the exact
+marker text). short-iso timestamps (`2026-09-13T21:14:31+0530`) parse as
+`2006-01-02T15:04:05-0700` and are stored UTC. Events dedup on
+`sleep-proxy/<suspend-utc>`; `value_num` = hours (resume − suspend), `ts` =
+resume time. Markers were consistent across multiple boots on the owner's
+machine — the proxy is reliable enough to keep. Full findings:
+`internal/collectors/sleepproxy_NOTES.md`.
+
 ## Normalizer (`quantify`, phase 4)
 
 Turns `note` events into structured annotations. Four hard rules (spec 00):
