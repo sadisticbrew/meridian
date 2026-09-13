@@ -155,6 +155,16 @@ the last `}`; on timeout or unparseable output the provider returns an error (th
 note simply stays pending — never fatal). Verify the exact `opencode run` flags
 against the installed version during phase 4 and record them in this file.
 
+**Verified live (phase 4, opencode 1.18.30 on CachyOS):** the default
+`command = "opencode run"` works verbatim — `opencode run '<prompt>'` takes the
+prompt as its final positional argument (no shell, no `{PROMPT}` substitution
+token), optional `-m provider/model` for the model. The model's reply goes to
+stdout wrapped in ANSI escape sequences (CSI resets around lines), so ANSI
+stripping is mandatory. Note: the process exits 0 even when the backend errors
+and output is garbage — exit status is not a reliability signal; the JSON
+extraction + closed-vocabulary validation downstream is the real gate. Provider
+errors leave notes pending as specified.
+
 **`http` (adapter).** OpenAI-compatible chat completions. Config:
 
 ```toml

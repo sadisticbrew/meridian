@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/sadisticbrew/meridian/internal/model"
+	sqlite "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // EventFilter selects events. From/To are UTC RFC 3339 strings and form the
@@ -111,6 +113,16 @@ func (s *Store) AddEvent(e model.Event) (int64, error) {
 		return 0, fmt.Errorf("add event: %w", err)
 	}
 	return id, nil
+}
+
+// IsDedupConflict reports whether err is SQLite's UNIQUE violation on the
+// events.dedup_key index; callers treat that as a duplicate, not a failure.
+func IsDedupConflict(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) || se.Code() != sqlite3.SQLITE_CONSTRAINT_UNIQUE {
+		return false
+	}
+	return strings.Contains(se.Error(), "events.dedup_key")
 }
 
 // UpsertByDedup inserts e when its dedup key is unseen. When a row with the

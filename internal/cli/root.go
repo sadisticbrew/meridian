@@ -98,10 +98,15 @@ func classify(err error, ran bool) int {
 	return 1
 }
 
-func Execute() int { return executeIO(os.Stdout, os.Stderr, os.Args[1:]) }
+func Execute() int { return executeIOStdin(os.Stdin, os.Stdout, os.Stderr, os.Args[1:]) }
 
 func executeIO(out, errW io.Writer, args []string) int {
+	return executeIOStdin(os.Stdin, out, errW, args)
+}
+
+func executeIOStdin(in io.Reader, out, errW io.Writer, args []string) int {
 	root, state := newRoot()
+	root.SetIn(in)
 	root.SetOut(out)
 	root.SetErr(errW)
 	root.SetArgs(args)
@@ -147,6 +152,9 @@ func newRoot() (*cobra.Command, *rt) {
 		newExportCmd(state),
 		newTUICmd(state),
 		newDumpCmd(state),
+		newIngestCmd(state),
+		newImportCmd(state),
+		newHookCmd(state),
 		newSyncCmd(state),
 		newQuantifyCmd(state),
 	)
