@@ -73,7 +73,7 @@ func TestSyncCollectsAndIsIdempotent(t *testing.T) {
 	cfgPath := syncConfig(t, syncFixtureRepo(t))
 	db := filepath.Join(t.TempDir(), "m.db")
 
-	out, errW, code := runCapture("sync", "--db", db, "--config", cfgPath)
+	out, errW, code := runCapture("sync", "--db", db, "--config", cfgPath, "--only", "neetcode")
 	if code != 0 {
 		t.Fatalf("first sync exit %d, stderr: %s", code, errW)
 	}
@@ -81,7 +81,7 @@ func TestSyncCollectsAndIsIdempotent(t *testing.T) {
 		t.Errorf("first sync output = %q, want line %q", out, "neetcode: 1 new, 0 updated")
 	}
 
-	out, errW, code = runCapture("sync", "--db", db, "--config", cfgPath)
+	out, errW, code = runCapture("sync", "--db", db, "--config", cfgPath, "--only", "neetcode")
 	if code != 0 {
 		t.Fatalf("second sync exit %d, stderr: %s", code, errW)
 	}
@@ -115,7 +115,7 @@ func TestSyncUnavailableSkipsWithExitZero(t *testing.T) {
 	cfgPath := syncConfig(t, filepath.Join(t.TempDir(), "no-such-repo"))
 	db := filepath.Join(t.TempDir(), "m.db")
 
-	out, errW, code := runCapture("sync", "--db", db, "--config", cfgPath)
+	out, errW, code := runCapture("sync", "--db", db, "--config", cfgPath, "--only", "neetcode")
 	if code != 0 {
 		t.Fatalf("sync exit %d, stderr: %s", code, errW)
 	}
