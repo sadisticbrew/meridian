@@ -3,6 +3,7 @@ module github.com/sadisticbrew/meridian
 go 1.27.1
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.58.0
 )
