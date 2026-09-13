@@ -112,7 +112,7 @@ func newRoot() (*cobra.Command, *rt) {
 	root.PersistentFlags().StringVar(&state.dbPath, "db", "", "database path")
 	root.PersistentFlags().StringVar(&state.configPath, "config", "", "config file path")
 	root.PersistentFlags().BoolVar(&state.jsonOut, "json", false, "machine-readable output")
-	root.AddCommand(newInitCmd(state))
+	root.AddCommand(newTrackCmd(state), newInitCmd(state))
 	return root, state
 }
 
